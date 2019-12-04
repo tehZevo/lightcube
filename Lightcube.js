@@ -23,6 +23,23 @@ module.exports = class Lightcube
     this.reset()
   }
 
+  diamond(x, y, z)
+  {
+    if(x == 0 && y == 0)
+    {
+      return true;
+    }
+    if(y == 0 && z == 0)
+    {
+      return true;
+    }
+    if(x == 0 && z == 0)
+    {
+      return true;
+    }
+    return false;
+  }
+
   reset()
   {
     this.potential = tf.variable(tf.zeros(this.cubeShape));
@@ -36,6 +53,8 @@ module.exports = class Lightcube
     //TODO: convert to a single tensor with reshapes n stuff
     U.for3d(-ks, -ks, -ks, ks+1, ks+1, ks+1, (x, y, z) =>
     {
+      //if(!this.diamond(x, y, z)) { return; }
+
       //var w = tf.variable(tf.zeros(this.cubeShape));
       var w = tf.variable(tf.randomUniform(this.cubeShape, 0, 1));
       //var w = tf.variable(tf.ones(this.cubeShape));
@@ -53,7 +72,8 @@ module.exports = class Lightcube
     //probabilistic spiking threshold
     var threshold = tf.randomUniform(this.cubeShape, 0, 1);
     //update spikes
-    this.spikes.assign(tf.greater(this.potential, threshold));
+    //this.spikes.assign(tf.greater(this.potential, threshold));
+    this.spikes.assign(tf.greater(this.potential, tf.onesLike(this.potential).mul(0.02)));
     var potential = this.potential;
     //reset potential where spikes occur
     potential = tf.where(this.spikes, tf.zerosLike(potential), potential);
@@ -63,6 +83,8 @@ module.exports = class Lightcube
     var spikeCounter = tf.zeros(this.cubeShape);
     U.for3d(-ks, -ks, -ks, ks+1, ks+1, ks+1, (x, y, z) =>
     {
+      //if(!this.diamond(x, y, z)) { return; }
+
       //shift spikes to be local to neuron
       var spikeShift = U.shift(this.spikes, [x, y, z]).asType("float32");
       //count spikes for sensitivity calculation later
@@ -86,20 +108,24 @@ module.exports = class Lightcube
     this.sensitivity.assign(sens);
 
     //r-stdp
-    //decay spike traces
-    var spikeDecay = this.spikeDecay;
-    spikeDecay = spikeDecay.mul(1 - this.spikeDecayRate);
-    //update spike traces
-    spikeDecay = tf.where(this.spikes, tf.onesLike(this.spikes).asType("float32"), spikeDecay);
-    this.spikeDecay.assign(spikeDecay);
-
     U.for3d(-ks, -ks, -ks, ks+1, ks+1, ks+1, (x, y, z) =>
     {
+      //if(!this.diamond(x, y, z)) { return; }
+
       //shift spikes to be local to neuron
       var spikeDecayShift = U.shift(this.spikeDecay, [x, y, z]);
+      var spikeShift = U.shift(this.spikes, [x, y, z]);
+      //decay where spikes occur, else 0
+      spikeDecayShift = tf.where(spikeShift, spikeDecayShift, tf.zerosLike(spikeDecayShift));
+
+      //var spikeDiff = spikeDecayShift.sub(this.spikeDecay); //TODO: correct direction?
+      var decay = this.spikeDecay;
+      //decay where spikes occur, else 0
+      decay = tf.where(this.spikes, decay, tf.zerosLike(decay));
+
       //calculate difference between spike "timings"
-      //TODO: check stdp logic against colab notebook
-      var spikeDiff = spikeDecayShift.sub(this.spikeDecay); //TODO: correct direction?
+      var spikeDiff = decay.sub(spikeDecayShift); //TODO: correct direction?
+      spikeDiff = spikeDiff.sign().sub(spikeDiff);
       spikeDiff = spikeDiff.mul(this.traceDir);
       //decay traces
       var trace = this.traces[[x, y, z]];
@@ -108,6 +134,13 @@ module.exports = class Lightcube
       trace = trace.add(spikeDiff);
       this.traces[[x, y, z]].assign(trace);
     });
+
+    //decay spike traces
+    var spikeDecay = this.spikeDecay;
+    spikeDecay = spikeDecay.mul(1 - this.spikeDecayRate);
+    //update spike traces
+    spikeDecay = tf.where(this.spikes, tf.onesLike(this.spikes).asType("float32"), spikeDecay);
+    this.spikeDecay.assign(spikeDecay);
   }
 
   train(reward)
@@ -115,6 +148,7 @@ module.exports = class Lightcube
     var ks = this.kernelSize;
     U.for3d(-ks, -ks, -ks, ks+1, ks+1, ks+1, (x, y, z) =>
     {
+      //if(!this.diamond(x, y, z)) { return; }
       var trace = this.traces[[x, y, z]];
       var syn = this.synapses[[x, y, z]];
       syn = syn.add(trace.mul(reward * this.learningRate));

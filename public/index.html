@@ -99,70 +99,10 @@
 		var cells;
 		var gui;
 
-		//https://wpmedia.wolfram.com/uploads/sites/13/2018/02/01-3-1.pdf
-		var config = {
-			a:4, b:5, c:5, d:5,
-			initPop: 0.2,
-			//size: 64, //TODO: get from getSize in lightcube server
-			size: 32,
-			noise: 0.0,
-			reset: function() {
-				initCells();
-			},
-			set: function(a, b, c, d, reset=false){
-				config.a = a;
-				config.b = b;
-				config.c = c;
-				config.d = d;
-
-				gui.updateDisplay();
-
-				if(reset)
-				{
-					config.reset();
-				}
-			},
-			randomize: function() {
-				var a = Math.floor(Math.random() * 27)
-				var b = Math.floor(Math.random() * 27)
-				var c = Math.floor(Math.random() * 27)
-				var d = Math.floor(Math.random() * 27)
-
-				while(b < a)
-				{
-					b = Math.floor(Math.random() * 27)
-				}
-
-				while(d < c)
-				{
-					d = Math.floor(Math.random() * 27)
-				}
-
-				config.set(a, b, c, d);
-
-				config.reset();
-			},
-		};
+		var neuronSize = 0.75;
+		var size = 16;
 
 	  gui = new dat.GUI();
-		var f1 = gui.addFolder("Life config")
-	  f1.add(config, "a", 0, 26, 1).name("E min");
-		f1.add(config, "b", 0, 26, 1).name("E max");
-		f1.add(config, "c", 0, 26, 1).name("F min");
-		f1.add(config, "d", 0, 26, 1).name("F max");
-		f1.add(config, "randomize").name("Randomize");
-		f1.open();
-		var fPresets = f1.addFolder("Presets");
-		fPresets.add({f: () => config.set(4, 5, 5, 5, true)}, "f").name("4555");
-		fPresets.add({f: () => config.set(5, 7, 6, 6, true)}, "f").name("5766");
-
-		var f2 = gui.addFolder('Reset');
-		f2.add(config, "initPop", 0, 1, 0.01).name("Initial pop.");
-		f2.add(config, "reset").name("Reset");
-		f2.open();
-		var f3 = gui.addFolder("Interaction");
-		f3.add(config, "noise", 0, 0.001, 0.00001).name("noise");
-		f3.open();
 
 		init()
 
@@ -188,13 +128,14 @@
 
 			scene = new THREE.Scene();
 
-			var circleGeometry = new THREE.BoxBufferGeometry( 1, 1, 1 );
+			var circleGeometry = new THREE.BoxBufferGeometry( neuronSize, neuronSize, neuronSize );
+			var boundsGeometry = new THREE.BoxBufferGeometry( 1, 1, 1 );
 
 			geometry = new THREE.InstancedBufferGeometry();
 			geometry.index = circleGeometry.index;
 			geometry.attributes = circleGeometry.attributes;
 
-			var s = config.size;
+			var s = size;
 			valueAttribute = new THREE.InstancedBufferAttribute( new Float32Array(s * s * s), 1 ).setDynamic( true );
 			geometry.addAttribute( 'value', valueAttribute );
 
@@ -229,7 +170,7 @@
 			mesh.scale.set( 500, 500, 500 );
 			scene.add( mesh );
 
-			var outerBoxGeo = new THREE.EdgesGeometry( geometry );
+			var outerBoxGeo = new THREE.EdgesGeometry( boundsGeometry );
 			var mat = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 2 } );
 			var wireframe = new THREE.LineSegments( outerBoxGeo, mat );
 			wireframe.scale.set(1000, 1000, 1000)
@@ -285,7 +226,6 @@
 			//TODO: get from server
 			var cells = await protopost("/api", "/getSpikesFlat");
 			//write cells to
-			console.log(cells.length)
 			valueAttribute.array = new Float32Array(cells);
 			valueAttribute.needsUpdate = true;
 
