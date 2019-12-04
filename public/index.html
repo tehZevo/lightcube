@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		body {
+			color: #ffffff;
+			font-family: Monospace;
+			font-size: 13px;
+			text-align: center;
+			font-weight: bold;
+			background-color: #000000;
+			margin: 0px;
+			overflow: hidden;
+		}
+
+		#info {
+			position: absolute;
+			top: 0px;
+			width: 100%;
+			padding: 5px;
+		}
+
+		a {
+			color: #ffffff;
+		}
+
+		#webglmessage a {
+			color: #da0;
+		}
+
+		#notSupported {
+			width: 50%;
+			margin: auto;
+			border: 2px red solid;
+			margin-top: 20px;
+			padding: 10px;
+		}
+	</style>
+</head>
+<body>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/1.1.0/tf.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/104/three.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.6/dat.gui.min.js"></script>
+	<script src="orbitcontrols.js"></script>
+
+	<script id="vshader" type="x-shader/x-vertex">
+		precision highp float;
+		uniform mat4 modelViewMatrix;
+		uniform mat4 projectionMatrix;
+		uniform float invScale;
+
+		attribute float value;
+		attribute vec3 position;
+		attribute vec3 translate;
+		attribute vec3 normal;
+
+		varying vec3 vNormal;
+		varying float vValue;
+
+		void main() {
+			vNormal = normal;
+			vValue = value;
+
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( translate + position * invScale * 1.75, 1.0 );
+		}
+	</script>
+	<script id="fshader" type="x-shader/x-fragment">
+		precision highp float;
+		varying vec3 vNormal;
+		varying float vValue;
+
+		void main() {
+			if(vValue < 0.5)
+			{
+				discard;
+			}
+
+			float ambient = 0.1;
+			vec3 light = vec3(1, 2, 3);
+			light = normalize(light);
+			float l = max(0.0, dot(vNormal, light));
+			l = min(1.0, l + ambient);
+
+			vec4 diffuseColor = vec4(1, 1, 1, 1);
+			gl_FragColor = vec4(vec3(l), 1);
+		}
+	</script>
+
+	<script>
+		var container;
+
+		var camera, scene, renderer;
+		var geometry, material, mesh;
+		var valueAttribute;
+		var controls;
+		var cells;
+		var gui;
+
+		//https://wpmedia.wolfram.com/uploads/sites/13/2018/02/01-3-1.pdf
+		var config = {
+			a:4, b:5, c:5, d:5,
+			initPop: 0.2,
+			//size: 64, //TODO: get from getSize in lightcube server
+			size: 16,
+			noise: 0.0,
+			reset: function() {
+				initCells();
+			},
+			set: function(a, b, c, d, reset=false){
+				config.a = a;
+				config.b = b;
+				config.c = c;
+				config.d = d;
+
+				gui.updateDisplay();
+
+				if(reset)
+				{
+					config.reset();
+				}
+			},
+			randomize: function() {
+				var a = Math.floor(Math.random() * 27)
+				var b = Math.floor(Math.random() * 27)
+				var c = Math.floor(Math.random() * 27)
+				var d = Math.floor(Math.random() * 27)
+
+				while(b < a)
+				{
+					b = Math.floor(Math.random() * 27)
+				}
+
+				while(d < c)
+				{
+					d = Math.floor(Math.random() * 27)
+				}
+
+				config.set(a, b, c, d);
+
+				config.reset();
+			},
+		};
+
+	  gui = new dat.GUI();
+		var f1 = gui.addFolder("Life config")
+	  f1.add(config, "a", 0, 26, 1).name("E min");
+		f1.add(config, "b", 0, 26, 1).name("E max");
+		f1.add(config, "c", 0, 26, 1).name("F min");
+		f1.add(config, "d", 0, 26, 1).name("F max");
+		f1.add(config, "randomize").name("Randomize");
+		f1.open();
+		var fPresets = f1.addFolder("Presets");
+		fPresets.add({f: () => config.set(4, 5, 5, 5, true)}, "f").name("4555");
+		fPresets.add({f: () => config.set(5, 7, 6, 6, true)}, "f").name("5766");
+
+		var f2 = gui.addFolder('Reset');
+		f2.add(config, "initPop", 0, 1, 0.01).name("Initial pop.");
+		f2.add(config, "reset").name("Reset");
+		f2.open();
+		var f3 = gui.addFolder("Interaction");
+		f3.add(config, "noise", 0, 0.001, 0.00001).name("noise");
+		f3.open();
+
+		init()
+
+		function init() {
+
+			renderer = new THREE.WebGLRenderer({
+				antialias: true,
+			});
+
+			container = document.createElement( 'div' );
+			document.body.appendChild( container );
+
+			camera = new THREE.PerspectiveCamera( 50, window.innerWidth / window.innerHeight, 1, 5000 );
+			camera.position.z = 1400;
+
+			// Create controls
+			controls = new THREE.OrbitControls( camera, renderer.domElement );
+			controls.target.set(0, 0, 0);
+			//controls.minZoom = 2;
+			//controls.maxZoom = 16;
+			controls.enableDamping = true;
+			controls.update();
+
+			scene = new THREE.Scene();
+
+			var circleGeometry = new THREE.BoxBufferGeometry( 1, 1, 1 );
+
+			geometry = new THREE.InstancedBufferGeometry();
+			geometry.index = circleGeometry.index;
+			geometry.attributes = circleGeometry.attributes;
+
+			var s = config.size;
+			valueAttribute = new THREE.InstancedBufferAttribute( new Float32Array(s * s * s), 1 ).setDynamic( true );
+			geometry.addAttribute( 'value', valueAttribute );
+
+			var translateArray = new Float32Array(s * s * s * 3 );
+			for(var x = 0; x < s; x++)
+			{
+				for(var y = 0; y < s; y++)
+				{
+					for(var z = 0; z < s; z++)
+					{
+						var i = (z * s * s + y * s + x) * 3;
+						translateArray[i + 0] = x / s * 2 - 1;
+						translateArray[i + 1] = y / s * 2 - 1;
+						translateArray[i + 2] = z / s * 2 - 1;
+					}
+				}
+			}
+
+			geometry.addAttribute( 'translate', new THREE.InstancedBufferAttribute( translateArray, 3 ) );
+
+			material = new THREE.RawShaderMaterial( {
+				uniforms: {
+					"invScale": {value: [1/s]},
+				},
+				vertexShader: document.getElementById( 'vshader' ).textContent,
+				fragmentShader: document.getElementById( 'fshader' ).textContent,
+				depthTest: true,
+				depthWrite: true,
+			} );
+
+			mesh = new THREE.Mesh( geometry, material );
+			mesh.scale.set( 500, 500, 500 );
+			scene.add( mesh );
+
+			var outerBoxGeo = new THREE.EdgesGeometry( geometry );
+			var mat = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 2 } );
+			var wireframe = new THREE.LineSegments( outerBoxGeo, mat );
+			wireframe.scale.set(1000, 1000, 1000)
+			scene.add( wireframe );
+
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			container.appendChild( renderer.domElement );
+
+			window.addEventListener( 'resize', onWindowResize, false );
+
+			animate();
+		}
+
+		function onWindowResize( event ) {
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize( window.innerWidth, window.innerHeight );
+
+		}
+
+		async function animate() {
+
+			requestAnimationFrame( animate );
+
+			await render();
+			controls.update();
+
+		}
+
+		async function protopost(url, route, data)
+		{
+			data = data == null ? {} : data;
+			var res = await fetch(url + route, {
+		    method: 'POST',
+		    headers: {
+		      'Accept': 'application/json',
+		      'Content-Type': 'application/json'
+		    },
+		    body: JSON.stringify(data)
+		  });
+		  var content = await res.json();
+			return content;
+		}
+
+
+		async function render()
+		{
+			var time = Math.sin(Date.now() / 1000) / 2 + 0.5;
+
+			//TODO: get from server
+			var cells = await protopost("/api", "/getSpikesFlat");
+			//write cells to
+			console.log(cells.length)
+			valueAttribute.array = new Float32Array(cells);
+			valueAttribute.needsUpdate = true;
+
+			renderer.render( scene, camera );
+		}
+	</script>
+
+</body>
+</html>
