@@ -26,8 +26,8 @@ module.exports = class Lightcube
   reset()
   {
     this.potential = tf.variable(tf.zeros(this.cubeShape));
-    //this.sensitivity = tf.variable(tf.zeros(this.cubeShape));
-    this.sensitivity = tf.variable(tf.ones(this.cubeShape));
+    this.sensitivity = tf.variable(tf.zeros(this.cubeShape));
+    //this.sensitivity = tf.variable(tf.ones(this.cubeShape));
     this.spikes = tf.variable(tf.zeros(this.cubeShape, "bool"));
     this.spikeDecay = tf.variable(tf.zeros(this.cubeShape));
     var synapses = {};
@@ -38,6 +38,7 @@ module.exports = class Lightcube
     {
       //var w = tf.variable(tf.zeros(this.cubeShape));
       var w = tf.variable(tf.randomUniform(this.cubeShape, 0, 1));
+      //var w = tf.variable(tf.ones(this.cubeShape));
       synapses[[x, y, z]] = w;
       var t = tf.variable(tf.zeros(this.cubeShape));
       traces[[x, y, z]] = t;
@@ -58,22 +59,22 @@ module.exports = class Lightcube
     potential = tf.where(this.spikes, tf.zerosLike(potential), potential);
     //decay potential
     potential = potential.mul(1 - this.potentialLeakRate);
-    //this.potential += tf.tensordot(tf.cast(this.spikes, "float32"), this.synapses, 1) / this.size * this.sensitivity
 
     var spikeCounter = tf.zeros(this.cubeShape);
     U.for3d(-ks, -ks, -ks, ks+1, ks+1, ks+1, (x, y, z) =>
     {
       //shift spikes to be local to neuron
-      var spikeShift = U.shift(this.spikes, [x, y, z]);
+      var spikeShift = U.shift(this.spikes, [x, y, z]).asType("float32");
       //count spikes for sensitivity calculation later
       spikeCounter = spikeCounter.add(spikeShift);
       //add to potential
-      var spikeSynSens = this.spikes.mul(this.synapses[[x, y, z]]).mul(this.sensitivity);
-      potential = this.potential.add(spikeSynSens);
+      //var spikeSynSens = this.spikes.asType("float32").mul(this.synapses[[x, y, z]]).mul(this.sensitivity);
+      var spikeSynSens = spikeShift.mul(this.synapses[[x, y, z]]).mul(this.sensitivity);
+      potential = potential.add(spikeSynSens);
     });
 
     //increase potential slowly over time
-    potential = this.potential.add(this.sensitivity.mul(this.potentialIncrease));
+    potential = potential.add(this.sensitivity.mul(this.potentialIncrease));
     this.potential.assign(potential);
 
     //update sensitivity
@@ -97,6 +98,7 @@ module.exports = class Lightcube
       //shift spikes to be local to neuron
       var spikeDecayShift = U.shift(this.spikeDecay, [x, y, z]);
       //calculate difference between spike "timings"
+      //TODO: check stdp logic against colab notebook
       var spikeDiff = spikeDecayShift.sub(this.spikeDecay); //TODO: correct direction?
       spikeDiff = spikeDiff.mul(this.traceDir);
       //decay traces

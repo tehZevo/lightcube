@@ -6,14 +6,30 @@ var tf = require("@tensorflow/tfjs-node");
 var app = express();
 app.use(express.static('public'));
 
-var cubeSize = 16;
+var cubeSize = 32;
 var kernelSize = 1; //half size
+
+// var lc = new Lightcube({
+//   cubeSize: cubeSize,
+//   kernelSize: kernelSize,
+//   potentialLeakRate: 0.1,
+//   sensitivityIncrease: 0.0001,
+//   sensitivityDecrease: 0.1,
+//   spikeDecayRate: 0.01,
+//   traceDecayRate: 0.1,
+//   //learningRate: 1e-4,
+//   learningRate: 1e-1,
+//   synMin: 0,
+//   synMax: 1,
+//   traceDir: 1,
+//   potentialIncrease: 0,//0.000001
+// });
 
 var lc = new Lightcube({
   cubeSize: cubeSize,
   kernelSize: kernelSize,
-  potentialLeakRate: 0.01,
-  sensitivityIncrease: 0.01,
+  potentialLeakRate: 0.1,
+  sensitivityIncrease: 0.0001,
   sensitivityDecrease: 0.1,
   spikeDecayRate: 0.01,
   traceDecayRate: 0.1,
@@ -22,7 +38,7 @@ var lc = new Lightcube({
   synMin: 0,
   synMax: 1,
   traceDir: 1,
-  potentialIncrease: 0.0001
+  potentialIncrease: 0,//0.000001
 });
 
 var reward = 0;
@@ -33,10 +49,12 @@ function update()
   {
     //lc.train(reward);
     lc.train(1);
+    var one = tf.tensor([[[0.1]]]).pad([[15, 16], [15, 16], [15, 16]])
+    lc.potential.assign(lc.potential.add(one));
     lc.step();
     reward = 0;
 
-    //console.log(lc.potential.mean().dataSync())
+    console.log(lc.potential.mean().dataSync())
   });
 
   setImmediate(update);
